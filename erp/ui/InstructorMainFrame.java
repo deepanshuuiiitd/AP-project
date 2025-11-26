@@ -10,6 +10,8 @@ import edu.univ.erp.service.ErpService;
 import edu.univ.erp.service.MaintenanceModeException;
 import edu.univ.erp.service.MaintenanceService;
 import edu.univ.erp.ui.UIUtil;
+import edu.univ.erp.service.ErpService;
+
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -27,6 +29,7 @@ import java.util.Optional;
  * - Edits are persisted immediately via ErpService.upsertGradeForEnrollment.
  */
 public class InstructorMainFrame extends BaseMainFrame {
+
     private final ErpService erpService = new ErpService();
     private final AuthService authService = new AuthService();
     private final GradeDao gradeDao = new GradeDao();
@@ -77,11 +80,10 @@ public class InstructorMainFrame extends BaseMainFrame {
         super(username, "INSTRUCTOR");
         initUI();
         loadSectionsForUser(username);
-        // add shared status bar
         getContentPane().add(getStatusBar(), BorderLayout.SOUTH);
-        // initial maintenance application
         applyMaintenanceStateSafe();
     }
+
 
     private void initUI() {
 
@@ -103,6 +105,36 @@ public class InstructorMainFrame extends BaseMainFrame {
         sectionList.setFixedCellHeight(28);
         sectionList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         left.add(new JScrollPane(sectionList), BorderLayout.CENTER);
+
+        // ---------- Add "Set Weights" button under sections -----------
+        JButton setWeightsBtn = UIUtil.createRoundedButton("Set Weights");
+        setWeightsBtn.addActionListener(evt -> {
+            // maintenance check: only allow saving when writable
+            if (!edu.univ.erp.util.AccessChecker.isWritable()) {
+                JOptionPane.showMessageDialog(InstructorMainFrame.this,
+                        "System is in maintenance mode. Cannot modify weights now.",
+                        "Read-only", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+
+            int selectedSectionId = getSelectedSectionId();
+            if (selectedSectionId <= 0) {
+                JOptionPane.showMessageDialog(InstructorMainFrame.this, "Please select a section first.", "Info", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            // open editor dialog (modal)
+            SectionWeightEditorDialog dlg = new SectionWeightEditorDialog(InstructorMainFrame.this, selectedSectionId);
+            dlg.setVisible(true);
+
+            // refresh students/weights display if needed
+            Section s = sectionList.getSelectedValue();
+            if (s != null) loadStudentsForSection(s.getSectionId());
+        });
+        JPanel leftSouth = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        leftSouth.add(setWeightsBtn);
+        left.add(leftSouth, BorderLayout.SOUTH);
+// --------------------------------------------------------------
+
 
         // right: students table
         JPanel right = new JPanel(new BorderLayout(6, 6));
@@ -168,13 +200,11 @@ public class InstructorMainFrame extends BaseMainFrame {
                     Integer enrollmentId = (Integer) studentsTableModel.getValueAt(row, 0);
                     String newGradeRaw = String.valueOf(studentsTableModel.getValueAt(row, col));
                     String newGrade = "N/A".equals(newGradeRaw) ? "" : newGradeRaw;
-                    // fetch existing grade from DB (to push on undo stack)
                     Optional<Grade> existing = gradeDao.findByEnrollmentId(enrollmentId);
                     String oldGrade = existing.map(Grade::getGrade).orElse("");
-                    // persist via service wrapper (guards maintenance)
+
                     boolean changed = erpService.upsertGradeForEnrollment(enrollmentId, newGrade, InstructorMainFrame.this.role);
                     if (changed) {
-                        // record to undo stack
                         undoStack.push(new GradeChange(enrollmentId, oldGrade == null ? "" : oldGrade, newGrade));
                         undoBtn.setEnabled(true);
                         setStatus("Grade saved for enrollment " + enrollmentId);
@@ -183,7 +213,6 @@ public class InstructorMainFrame extends BaseMainFrame {
                     }
                 } catch (MaintenanceModeException mm) {
                     JOptionPane.showMessageDialog(InstructorMainFrame.this, mm.getMessage(), "Maintenance mode", JOptionPane.WARNING_MESSAGE);
-                    // refresh UI from DB to revert any local change
                     Section s = sectionList.getSelectedValue();
                     if (s != null) loadStudentsForSection(s.getSectionId());
                 } catch (Exception ex) {
@@ -193,7 +222,7 @@ public class InstructorMainFrame extends BaseMainFrame {
             }
         });
 
-        // Undo action: revert last change
+        // UNDO
         undoBtn.addActionListener(e -> {
             if (undoStack.isEmpty()) {
                 JOptionPane.showMessageDialog(this, "Nothing to undo", "Info", JOptionPane.INFORMATION_MESSAGE);
@@ -224,10 +253,21 @@ public class InstructorMainFrame extends BaseMainFrame {
             }
         });
 
+        // ⭐⭐⭐ ENTER COMPONENT MARKS BUTTON — corrected version ⭐⭐⭐
+        JButton openCompEditor = UIUtil.createRoundedButton("Enter Component Marks");
+        openCompEditor.addActionListener(evt -> {
+            Integer uid = authService.getUserIdByUsername(this.username);
+            int instrId = uid == null ? -1 : uid;
+            GradesFrame gf = new GradesFrame(instrId);
+            gf.setVisible(true);
+        });
+        btnRow.add(openCompEditor);
+
+        // Maintenance state
         MaintenanceService maintenanceService = new MaintenanceService();
         boolean writable = !maintenanceService.isMaintenanceOn();
         if (enterGradeBtn != null) enterGradeBtn.setEnabled(writable);
-        if (undoBtn != null) undoBtn.setEnabled(writable && !undoStack.isEmpty()); // adjust if you use a different undo mechanism
+        if (undoBtn != null) undoBtn.setEnabled(writable && !undoStack.isEmpty());
         updateMaintenanceBanner(!writable);
 
     }
@@ -249,6 +289,13 @@ public class InstructorMainFrame extends BaseMainFrame {
         for (Section s : sections) sectionListModel.addElement(s);
         if (!sections.isEmpty()) sectionList.setSelectedIndex(0);
     }
+
+    /** Return section_id of currently selected section or -1 if none. */
+    private int getSelectedSectionId() {
+        Section s = sectionList.getSelectedValue();
+        return (s == null) ? -1 : s.getSectionId();
+    }
+
 
     private void loadStudentsForSection(int sectionId) {
         studentsTableModel.setRowCount(0);
