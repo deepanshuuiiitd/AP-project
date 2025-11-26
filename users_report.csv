@@ -1,0 +1,6 @@
+UserId,Username,Role
+1,admin1,ADMIN
+2,inst1,INSTRUCTOR
+3,stu1,STUDENT
+4,stu2,STUDENT
+6,inst2,INSTRUCTOR

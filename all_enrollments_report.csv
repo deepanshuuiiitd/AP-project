@@ -1,0 +1,4 @@
+Enroll ID,Student ID,Student Roll,Course Code,Course Title,Section ID,Instructor ID,Enrolled,Grade
+1,3,R1001,CS101,Intro to CS,1,2,2023-09-01,A
+2,4,R1002,MATH101,Calculus I,2,2,2023-09-01,B
+4,3,R1001,MATH101,Calculus I,2,2,2025-11-19,
